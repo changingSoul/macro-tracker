@@ -16,7 +16,7 @@
   --page:#f9f9f7; --surface:#fcfcfb; --field:#f4f3f0;
   --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
   --grid:#e1e0d9; --border:rgba(11,11,11,.10);
-  --kcal:#2a78d6; --protein:#eb6834; --fat:#4a3aa7; --carb:#eda100; --water:#1baf7a;
+  --kcal:#2a78d6; --protein:#eb6834; --fat:#4a3aa7; --carb:#eda100; --water:#1baf7a; --na:#e87ba4;
   --accent:#2a78d6;
   --good:#0ca30c; --good-text:#006300; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
   --shadow:0 1px 2px rgba(11,11,11,.04);
@@ -27,7 +27,7 @@
     --page:#0d0d0d; --surface:#1a1a19; --field:#242423;
     --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
     --grid:#2c2c2a; --border:rgba(255,255,255,.10);
-    --kcal:#3987e5; --protein:#d95926; --fat:#9085e9; --carb:#c98500; --water:#199e70;
+    --kcal:#3987e5; --protein:#d95926; --fat:#9085e9; --carb:#c98500; --water:#199e70; --na:#d55181;
     --accent:#3987e5;
     --good:#0ca30c; --good-text:#0ca30c;
     --shadow:none;
@@ -238,6 +238,25 @@ h1{font-size:19px; margin:4px 0 2px}
   </div>
 
   <div class="card">
+    <h2>🧂 钠 <span class="sub" id="naSub"></span></h2>
+    <div class="meter" style="margin:0">
+      <div class="row"><span class="name"><span class="dot" style="background:var(--na)"></span>钠摄入</span>
+        <span class="val" id="naVal"></span></div>
+      <div class="track"><div class="fill" id="naFill" style="background:var(--na)"></div></div>
+    </div>
+    <div class="water-btns">
+      <button data-mg="393">盐 1g</button>
+      <button data-mg="950">酱油一勺</button>
+      <button data-mg="1500">外食一餐</button>
+    </div>
+    <div class="water-custom">
+      <input type="number" id="naCustom" inputmode="numeric" placeholder="自定义 mg">
+      <button class="btn sm ghost" id="naAdd">记钠</button>
+    </div>
+    <p class="hint">目标 &lt; 2000 mg ≈ 一啤酒瓶盖的盐；外食重口按一餐 ≈1500 mg 粗估即可</p>
+  </div>
+
+  <div class="card">
     <h2>📋 今日记录 <span class="sub" id="logSub"></span></h2>
     <ul class="elist" id="todayList"></ul>
   </div>
@@ -394,6 +413,7 @@ h1{font-size:19px; margin:4px 0 2px}
       <div><label class="fl" for="sP">蛋白 (g)</label><input type="number" id="sP" inputmode="numeric"></div>
       <div><label class="fl" for="sF">脂肪 (g)</label><input type="number" id="sF" inputmode="numeric"></div>
       <div><label class="fl" for="sC">碳水 (g)</label><input type="number" id="sC" inputmode="numeric"></div>
+      <div><label class="fl" for="sNa">钠上限 (mg)</label><input type="number" id="sNa" inputmode="numeric"></div>
     </div>
     <hr class="divider">
     <div class="row-btns">
@@ -445,7 +465,7 @@ const GI_HIGH = ['白米粥','白面包','含糖饮料','果汁','西瓜','糖�
 const K_FOODS = ['菠菜','油菜','番茄','蘑菇','毛豆','黑豆','香蕉','土豆','红薯','牛油果','酸奶','三文鱼','豆类'];
 
 const DEF = {
-  settings:{ w:73, tdee:2289, kcal:1500, p:120, f:50, c:150, water:2500 },
+  settings:{ w:73, tdee:2289, kcal:1500, p:120, f:50, c:150, water:2500, na:2000 },
   days:{}, weights:{}
 };
 let store;
@@ -469,10 +489,11 @@ function toast(msg){
 function day(d){ if(!store.days[d]) store.days[d] = {e:[]}; return store.days[d]; }
 function addEntry(en){ en.id = Date.now()+Math.random().toString(16).slice(2); en.t = nowHM(); day(cur).e.push(en); save(); renderAll(); }
 function sumDay(d){
-  const s = {p:0,f:0,c:0,water:0,inK:0,exK:0};
+  const s = {p:0,f:0,c:0,water:0,na:0,inK:0,exK:0};
   (store.days[d]?.e||[]).forEach(x=>{
     if(x.type==='food'||x.type==='manual'){ s.p+=x.p; s.f+=x.f; s.c+=x.c; s.inK+=x.k; }
     else if(x.type==='water'){ s.water+=x.ml; }
+    else if(x.type==='na'){ s.na+=x.mg; }
     else if(x.type==='ex'){ s.exK+=x.k; }
   });
   return s;
@@ -502,10 +523,10 @@ function renderDateNav(){
 }
 
 /* ================= 今日：hero + meters ================= */
-function meterHTML(color, name, val, unit, target, overWarn, okAt){
+function meterHTML(color, name, val, unit, target, okAt, overAt = 110){
   const pct = target ? val/target*100 : 0;
   let chip = '';
-  if(pct > 110) chip = `<span class="chip over">⚠ 超</span>`;
+  if(pct > overAt) chip = `<span class="chip over">⚠ 超</span>`;
   else if(okAt && pct >= okAt) chip = `<span class="chip ok">✓</span>`;
   return `<div class="meter">
     <div class="row">
@@ -527,15 +548,20 @@ function renderToday(){
     `运动消耗 <b>+${Math.round(s.exK)}</b> kcal<br>` +
     `总缺口 ≈ <b>${Math.round(st.tdee + s.exK - s.inK)}</b> kcal`;
   $('meters').innerHTML =
-    meterHTML('var(--kcal)','热量', s.inK, 'kcal', st.kcal, true, false) +
-    meterHTML('var(--protein)','蛋白质', s.p, 'g', st.p, false, 95) +
-    meterHTML('var(--fat)','脂肪', s.f, 'g', st.f, true, 90) +
-    meterHTML('var(--carb)','碳水', s.c, 'g', st.c, true, 95);
+    meterHTML('var(--kcal)','热量', s.inK, 'kcal', st.kcal, false, 110) +
+    meterHTML('var(--protein)','蛋白质', s.p, 'g', st.p, 95) +
+    meterHTML('var(--fat)','脂肪', s.f, 'g', st.f, 90) +
+    meterHTML('var(--carb)','碳水', s.c, 'g', st.c, 95) +
+    meterHTML('var(--na)','钠', s.na, 'mg', st.na, false, 100);
   /* 水 */
   const wPct = s.water/st.water*100;
   $('waterVal').innerHTML = `${s.water} <em>/ ${st.water} ml</em>`;
   $('waterFill').style.width = Math.min(100,wPct)+'%';
   $('waterSub').textContent = wPct>=100?'今日已达标 ✓':`还差 ${Math.max(0,st.water-s.water)} ml`;
+  /* 钠 */
+  $('naVal').innerHTML = `${Math.round(s.na)} <em>/ ${st.na} mg</em>`;
+  $('naFill').style.width = Math.min(100, s.na/st.na*100)+'%';
+  $('naSub').textContent = s.na>st.na ? `已超 ${Math.round(s.na-st.na)} mg ⚠` : `还剩 ${Math.round(st.na-s.na)} mg`;
   /* 记录列表 */
   const es = (store.days[cur]?.e||[]);
   $('logSub').textContent = es.length ? `${es.length} 条` : '';
@@ -548,6 +574,7 @@ function entryHTML(x){
   if(x.type==='food'){ nm = `${x.name}<small>P ${x.p}g · F ${x.f}g · C ${x.c}g</small>`; kc = x.k+' kcal'; }
   else if(x.type==='manual'){ nm = `${x.label||'手动补记'}<small>P ${x.p}g · F ${x.f}g · C ${x.c}g</small>`; kc = x.k+' kcal'; }
   else if(x.type==='water'){ nm='💧 喝水'; kc = x.ml+' ml'; }
+  else if(x.type==='na'){ nm='🧂 钠'; kc = x.mg+' mg'; }
   else if(x.type==='ex'){ nm=`🏃 ${x.name}`; kc = `−${x.k} kcal · ${x.min}分钟`; }
   return `<li><span class="t">${x.t}</span><span class="nm">${nm}</span><span class="kc">${kc}</span>
     <button class="del" data-id="${x.id}" aria-label="删除">✕</button></li>`;
@@ -561,7 +588,7 @@ document.querySelectorAll('.elist').forEach(ul=>{
   });
 });
 function renderFoodList(){
-  const es = (store.days[cur]?.e||[]).filter(x=>x.type==='food'||x.type==='manual'||x.type==='water');
+  const es = (store.days[cur]?.e||[]).filter(x=>x.type==='food'||x.type==='manual'||x.type==='water'||x.type==='na');
   $('foodSub').textContent = es.length ? `${es.length} 条` : '';
   $('foodList').innerHTML = es.length ? es.map(entryHTML).join('') : `<li class="empty" style="display:block">暂无摄入记录</li>`;
   const s = sumDay(cur), st = store.settings;
@@ -624,6 +651,14 @@ $('wAdd').onclick = ()=>{
   const ml = +$('wCustom').value||0;
   if(ml<=0){ toast('填个毫升数～'); return; }
   addEntry({type:'water', ml}); $('wCustom').value=''; toast('💧 +'+ml+' ml');
+};
+document.querySelectorAll('[data-mg]').forEach(b=>{
+  b.onclick = ()=>{ addEntry({type:'na', mg:+b.dataset.mg}); toast('🧂 +'+b.dataset.mg+' mg'); };
+});
+$('naAdd').onclick = ()=>{
+  const mg = +$('naCustom').value||0;
+  if(mg<=0){ toast('填个毫克数～'); return; }
+  addEntry({type:'na', mg}); $('naCustom').value=''; toast('🧂 +'+mg+' mg');
 };
 
 /* ================= 运动 ================= */
@@ -751,9 +786,9 @@ chips('giLow', GI_LOW); chips('giHigh', GI_HIGH); chips('kChips', K_FOODS);
 function renderSettings(){
   const st = store.settings;
   $('sW').value=st.w; $('sTdee').value=st.tdee; $('sK').value=st.kcal;
-  $('sWat').value=st.water; $('sP').value=st.p; $('sF').value=st.f; $('sC').value=st.c;
+  $('sWat').value=st.water; $('sP').value=st.p; $('sF').value=st.f; $('sC').value=st.c; $('sNa').value=st.na;
 }
-[['sW','w'],['sTdee','tdee'],['sK','kcal'],['sWat','water'],['sP','p'],['sF','f'],['sC','c']].forEach(([id,k])=>{
+[['sW','w'],['sTdee','tdee'],['sK','kcal'],['sWat','water'],['sP','p'],['sF','f'],['sC','c'],['sNa','na']].forEach(([id,k])=>{
   $(id).onchange = ()=>{
     const v = +$(id).value;
     if(v>0){ store.settings[k]=v; save(); renderAll(); toast('已保存 ✓'); }
